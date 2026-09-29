@@ -1,0 +1,15 @@
+# Mở rộng tùy chọn (CP4): load balancer Nginx trước 3 instance agent.
+#   docker compose -f docker-compose.yml -f docker-compose.lb.yml up -d --scale agent=3
+# Gọi qua http://localhost:8080. Bỏ map cổng 8000 của agent vì 3 container
+# không thể cùng chiếm một cổng trên máy host.
+services:
+  agent:
+    ports: !reset []
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - agent

@@ -45,14 +45,24 @@ class ConversationStore:
         return f"history:{user_id}"
 
     def ping(self) -> bool:
-        """Redis có trả lời không? Dùng cho endpoint /ready."""
+        """Redis có trả lời không? Dùng cho endpoint /ready.
+
+        Nuốt MỌI exception (mất mạng, sai mật khẩu, Redis chưa khởi động...)
+        và trả ``False``: một exception thoát ra sẽ biến readiness probe
+        thành lỗi 500 thay vì 503.
+        """
         try:
             return bool(self.client.ping())
         except Exception:
             return False
 
     def append(self, user_id: str, role: str, content: str) -> None:
-        """Ghi thêm một lượt vào lịch sử."""
+        """Ghi thêm một lượt vào lịch sử.
+
+        ``ltrim(key, -N, -1)`` giữ N message MỚI NHẤT (``ltrim(0, N-1)`` sẽ
+        giữ nhầm phần cũ nhất) — nếu không prompt phình vô hạn và tiền token
+        cũng vậy. ``expire`` để hội thoại cũ tự hết hạn, Redis không đầy dần.
+        """
         key = self._key(user_id)
         self.client.rpush(key, json.dumps({"role": role, "content": content}, ensure_ascii=False))
         self.client.ltrim(key, -HISTORY_MAX_MESSAGES, -1)

@@ -93,7 +93,12 @@ def health():
 
 @app.get("/ready")
 def ready(store: ConversationStore = Depends(get_store)):
-    """Readiness probe — đã sẵn sàng nhận traffic chưa?"""
+    """Readiness probe — đã sẵn sàng nhận traffic chưa?
+
+    Khác /health ở chỗ: endpoint này ĐƯỢC PHÉP kiểm tra dependency. Trả 503
+    thì load balancer ngừng gửi request vào instance này nhưng KHÔNG restart
+    nó — Redis quay lại là instance tự nhận traffic tiếp.
+    """
     if lifecycle.shutting_down:
         return JSONResponse(status_code=503, content={"status": "shutting_down"})
     if not store.ping():

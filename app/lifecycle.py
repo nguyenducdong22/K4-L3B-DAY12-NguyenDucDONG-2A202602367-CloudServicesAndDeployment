@@ -23,14 +23,31 @@ class Lifecycle:
         self._previous: dict = {}
 
     def request_shutdown(self, signum=None, frame=None) -> None:
-        """Signal handler: đánh dấu process đang tắt dần."""
+        """Signal handler: đánh dấu process đang tắt dần.
+
+        Bật cờ để ``/health`` và ``/ready`` trả 503 → load balancer ngừng
+        đẩy request mới vào instance này.
+
+        Sau đó PHẢI gọi lại handler cũ (của uvicorn). Mỗi tín hiệu chỉ có
+        **một** handler: đăng ký handler của mình là ghi đè handler của
+        uvicorn — thứ thật sự dừng server. Không gọi lại thì app bật cờ rồi
+        chạy tiếp mãi, cho tới khi orchestrator hết kiên nhẫn và SIGKILL.
+
+        Chữ ký ``(signum, frame)`` là bắt buộc vì Python gọi handler với 2
+        tham số này. Không làm việc nặng ở đây — handler chạy xen giữa bytecode.
+        """
         self.shutting_down = True
         previous = self._previous.get(signum)
         if callable(previous):
             previous(signum, frame)
 
     def install(self) -> None:
-        """Đăng ký handler cho SIGTERM và SIGINT, nhớ lại handler cũ."""
+        """Đăng ký handler cho SIGTERM và SIGINT, nhớ lại handler cũ.
+
+        SIGTERM: orchestrator (Docker, Railway...) yêu cầu tắt khi deploy bản
+        mới. SIGINT: bạn bấm Ctrl+C. Truyền ``self.request_shutdown`` (tham
+        chiếu hàm), không phải ``self.request_shutdown()`` (gọi hàm).
+        """
         for sig in (signal.SIGTERM, signal.SIGINT):
             self._previous[sig] = signal.getsignal(sig)
             signal.signal(sig, self.request_shutdown)
