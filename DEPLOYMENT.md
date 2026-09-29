@@ -18,9 +18,9 @@
 
 | Mục | Nội dung |
 |-----|----------|
-| Public URL | https://TODO-thay-bang-url-that.up.railway.app |
+| Public URL | https://k4-l3b-day12-nguyenducdong-2a202602367-cloudserv-production.up.railway.app |
 | Platform | Railway |
-| Ngày deploy | Chưa deploy — cập nhật sau khi Railway chạy |
+| Ngày deploy | 2026-09-29 |
 
 ## Biến Môi Trường Đã Set Trên Cloud
 
@@ -28,12 +28,12 @@ Ghi tên biến và **nguồn giá trị**, không ghi giá trị:
 
 | Biến | Đã set | Ghi chú |
 |------|--------|---------|
-| `PORT` | ⏳ | platform tự gán |
-| `AGENT_API_KEY` | ⏳ | đặt trong dashboard, không nằm trong repo |
-| `REDIS_URL` | ⏳ | Redis add-on của Railway (${{Redis.REDIS_URL}}) |
-| `RATE_LIMIT_PER_MINUTE` | ⏳ | 10 |
-| `MONTHLY_BUDGET_USD` | ⏳ | 10.0 |
-| `LOG_LEVEL` | ⏳ | INFO |
+| `PORT` | ✅ | platform tự gán |
+| `AGENT_API_KEY` | ✅ | đặt trong dashboard, không nằm trong repo |
+| `REDIS_URL` | ✅ | Redis database của Railway, tham chiếu `${{Redis.REDIS_URL}}` (không copy giá trị) |
+| `RATE_LIMIT_PER_MINUTE` | ✅ | 10 |
+| `MONTHLY_BUDGET_USD` | ✅ | 10.0 |
+| `LOG_LEVEL` | ✅ | INFO |
 
 ## Lệnh Kiểm Tra
 
@@ -72,7 +72,23 @@ done; echo
 
 Dán output của các lệnh trên vào đây:
 
-**Trên cloud:** ⏳ chưa có — cập nhật sau khi deploy Railway.
+**Trên cloud (https://k4-l3b-day12-nguyenducdong-2a202602367-cloudserv-production.up.railway.app), chạy ngày 2026-09-29:**
+
+```
+$ curl <URL>/health
+{"status":"ok","service":"day12-agent","version":"1.0.0"} [200]
+
+$ curl <URL>/ready
+{"status":"ready","redis":true} [200]
+
+$ curl -X POST <URL>/ask -d '{"question":"Hello"}'                    # không có key
+{"detail":"invalid or missing API key"} [401]
+
+$ curl -X POST <URL>/ask -H "X-API-Key: khoa-sai" -d '{"question":"Hello"}'
+{"detail":"invalid or missing API key"} [401]
+```
+
+TODO(học viên): dán thêm output lệnh 4 (có key → 200) và lệnh 5 (rate limit) chạy trên cloud.
 
 **Trên máy (`docker compose up -d`, http://localhost:8000), chạy ngày 2026-09-29:**
 
