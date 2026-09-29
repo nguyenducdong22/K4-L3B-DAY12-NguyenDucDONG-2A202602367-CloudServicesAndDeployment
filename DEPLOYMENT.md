@@ -20,7 +20,7 @@
 |-----|----------|
 | Public URL | https://TODO-thay-bang-url-that.up.railway.app |
 | Platform | Railway |
-| Ngày deploy | 2026-09-29 |
+| Ngày deploy | Chưa deploy — cập nhật sau khi Railway chạy |
 
 ## Biến Môi Trường Đã Set Trên Cloud
 
@@ -28,12 +28,12 @@ Ghi tên biến và **nguồn giá trị**, không ghi giá trị:
 
 | Biến | Đã set | Ghi chú |
 |------|--------|---------|
-| `PORT` | ✅ | platform tự gán |
-| `AGENT_API_KEY` | ✅ | đặt trong dashboard, không nằm trong repo |
-| `REDIS_URL` | ✅ | Redis add-on của Railway (${{Redis.REDIS_URL}}) |
-| `RATE_LIMIT_PER_MINUTE` | ✅ | 10 |
-| `MONTHLY_BUDGET_USD` | ✅ | 10.0 |
-| `LOG_LEVEL` | ✅ | INFO |
+| `PORT` | ⏳ | platform tự gán |
+| `AGENT_API_KEY` | ⏳ | đặt trong dashboard, không nằm trong repo |
+| `REDIS_URL` | ⏳ | Redis add-on của Railway (${{Redis.REDIS_URL}}) |
+| `RATE_LIMIT_PER_MINUTE` | ⏳ | 10 |
+| `MONTHLY_BUDGET_USD` | ⏳ | 10.0 |
+| `LOG_LEVEL` | ⏳ | INFO |
 
 ## Lệnh Kiểm Tra
 
@@ -72,17 +72,31 @@ done; echo
 
 Dán output của các lệnh trên vào đây:
 
+**Trên cloud:** ⏳ chưa có — cập nhật sau khi deploy Railway.
+
+**Trên máy (`docker compose up -d`, http://localhost:8000), chạy ngày 2026-09-29:**
+
 ```
-HTTP/1.1 200 OK
-content-type: application/json
+$ curl http://localhost:8000/health
 {"status":"ok","service":"day12-agent","version":"1.0.0"}
 
-HTTP/1.1 200 OK
-content-type: application/json
+$ curl http://localhost:8000/ready
 {"status":"ready","redis":true}
 
-HTTP/1.1 401 Unauthorized
-detail: invalid or missing API key
+$ curl -X POST http://localhost:8000/ask -d '{"question":"Hello"}'      # không có key
+{"detail":"invalid or missing API key"} [401]
+
+# Có key, cùng X-User-Id: sv01, hỏi 3 lần
+history_length= 0 cost= 2.265e-05 tokens= {'in': 3, 'out': 37}
+history_length= 2 cost= 3.345e-05 tokens= {'in': 43, 'out': 45}
+history_length= 4 cost= 4.17e-05 tokens= {'in': 90, 'out': 47}
+
+# Rate limit: 15 lần liên tiếp, user mới
+200 200 200 200 200 200 200 200 200 200 429 429 429 429 429
+
+# Redis dừng: /health vẫn 200, /ready chuyển 503
+{"status":"ok","service":"day12-agent","version":"1.0.0"} [200]
+{"status":"not ready","redis":false} [503]
 ```
 
 ## Ảnh Chụp Màn Hình

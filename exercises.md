@@ -26,9 +26,10 @@ Chạy service và gọi `/ask` vài lần. Dán một dòng log JSON bạn thu 
 nêu **hai** việc bạn làm được với dòng log đó mà `print("đã trả lời xong")`
 không làm được.
 
-Dòng log JSON thu được:
+Dòng log JSON thu được (lấy từ `docker compose logs agent` sau khi gọi `/ask`
+với `X-User-Id: sv01`):
 ```json
-{"event": "ask_completed", "level": "info", "timestamp": "2026-09-29T03:19:18.123456+00:00", "user_id": "sv-test", "tokens_in": 15, "tokens_out": 42, "cost_usd": 0.00012}
+{"event": "ask_completed", "level": "info", "timestamp": "2026-09-29T04:26:08.172255+00:00", "user_id": "sv01", "tokens_in": 3, "tokens_out": 37, "cost_usd": 2.265e-05}
 ```
 
 Hai việc làm được với dòng log JSON này:
@@ -49,15 +50,24 @@ docker images | grep agent
 
 | Bản | Dung lượng |
 |-----|-----------|
-| 1 stage (bản đầu) | ~1.02 GB |
-| Multi-stage | ~185 MB |
+| 1 stage (bản đầu) | 1.73 GB (content size 446 MB) |
+| Multi-stage | 271 MB (content size 63.9 MB) |
+
+Số đo từ `docker images agent` trên Docker Desktop (Windows). Cột "content
+size" là dung lượng nén khi đẩy lên registry.
 
 Giải thích: phần dung lượng chênh lệch đó là những gì?
 
-Phần dung lượng chênh lệch (~835 MB) bao gồm:
-1. Base image đầy đủ (`python:3.11`) chứa toàn bộ trình biên dịch (gcc, g++), build headers, thư viện hệ thống và package quản lý không cần thiết lúc chạy, trong khi bản runtime dùng `python:3.11-slim` chỉ giữ runtime tối thiểu.
-2. Cache pip và các file build trung gian trong quá trình `pip install` nằm ở stage builder và không bị copy sang stage runtime (nhờ chỉ copy thư mục cài đặt sạch `/install` sang `/usr/local`).
-3. Loại bỏ các file rác, file mã nguồn và môi trường ảo thừa (`.git`, `.venv`, cache tests) nhờ `.dockerignore`.
+Chênh lệch khoảng 1.46 GB, gần như toàn bộ đến từ base image:
+1. `python:3.11` bản đầy đủ dựa trên Debian đầy đủ, mang theo gcc/g++, header
+   phát triển, git, và rất nhiều thư viện hệ thống chỉ cần khi biên dịch.
+   Stage runtime dùng `python:3.11-slim` chỉ giữ phần tối thiểu để chạy Python.
+2. Stage `builder` cài thư viện vào `/install` rồi bị bỏ đi; runtime chỉ
+   `COPY --from=builder /install` nên không mang theo gì của quá trình build.
+   `--no-cache-dir` giúp không lưu cache của pip.
+3. Bản multi-stage chỉ copy `app/` và `utils/`, không `COPY . .` toàn bộ repo.
+   (Hai bản build cùng dùng `.dockerignore` hiện tại nên `.env`, `.venv`, `.git`
+   đều không lọt vào image nào.)
 
 ---
 
@@ -67,7 +77,14 @@ Sửa một ký tự trong `app/main.py` rồi build lại. Với Dockerfile c�
 layer nào được dùng lại từ cache, layer nào phải chạy lại? Nếu bạn đặt
 `COPY . .` lên trước `RUN pip install` thì kết quả khác thế nào?
 
-- Khi sửa một ký tự trong `app/main.py`: Các layer được dùng lại từ cache bao gồm: `FROM python:3.11-slim`, `WORKDIR`, `COPY requirements.txt .`, `RUN pip install ...` và `COPY utils ./utils`. Chỉ các layer từ `COPY app ./app` trở đi mới phải chạy lại.
+- Khi thêm một dòng comment vào `app/main.py` rồi build lại
+  (`docker build --progress=plain`), output cho thấy:
+  - **CACHED**: `WORKDIR /build`, `COPY requirements.txt .`,
+    `RUN pip install ...`, `WORKDIR /app`, `COPY --from=builder /install /usr/local`.
+  - **Chạy lại**: `COPY app ./app`, `COPY utils ./utils`, `RUN useradd ...`.
+  `COPY utils` và `useradd` không đổi gì nhưng vẫn chạy lại vì chúng đứng
+  **sau** layer bị thay đổi — Docker hủy cache từ layer đầu tiên thay đổi trở
+  đi. Bước tốn thời gian nhất (`pip install`) vẫn được giữ nguyên.
 - Nếu đặt `COPY . .` lên trước `RUN pip install`: Mỗi khi thay đổi bất kỳ ký tự nào trong mã nguồn, Docker sẽ làm mất hiệu lực (cache bust) toàn bộ các layer phía sau nó, buộc Docker phải chạy lại `pip install` từ đầu, làm tăng thời gian build từ vài giây lên vài phút mỗi lần sửa code.
 
 ---
@@ -133,6 +150,13 @@ Chạy `docker compose up --scale agent=3` rồi gọi `/ask` nhiều lần vớ
 `X-User-Id`. Quan sát `history_length` trong response. Nếu lịch sử được lưu
 trong một dict Python thay vì Redis, bạn sẽ thấy con số đó thay đổi thế nào?
 
+Quan sát thật: chạy 3 instance agent sau Nginx
+(`docker compose -f docker-compose.yml -f docker-compose.lb.yml up -d --scale agent=3`),
+gọi `/ask` 6 lần qua cổng 8080 với `X-User-Id: sv-scale`. Log cho thấy
+agent-1, agent-2, agent-3 mỗi container xử lý 2 request (round-robin), nhưng
+`history_length` vẫn tăng đều: 0, 2, 4, 6, 8, 10 — vì cả 3 container cùng đọc
+và ghi lịch sử ở một Redis.
+
 Nếu lịch sử hội thoại được lưu trong một `dict` trong RAM Python của từng container:
 Khi scale lên 3 container (A, B, C), mỗi container có một vùng nhớ RAM tách biệt hoàn toàn. Khi người dùng gửi liên tiếp các câu hỏi với cùng một `X-User-Id`, các request sẽ được load balancer chia tải ngẫu nhiên vào các container khác nhau:
 - Câu hỏi 1 rơi vào container A: `history_length = 0`, A lưu vào RAM của A.
@@ -149,7 +173,23 @@ Ghi lại **một** lỗi bạn gặp khi deploy lên cloud (build fail, health 
 timeout, sai REDIS_URL, app không đọc `$PORT`...): thông báo lỗi là gì, bạn
 tìm ra nguyên nhân bằng cách nào, và sửa ra sao?
 
-- Lỗi: Health check timeout / Service unreachable khi deploy lên Cloud (Railway/Render).
-- Triệu chứng: Dashboard báo container failed to become healthy hoặc crash sau start-period.
-- Nguyên nhân: Trong lệnh khởi chạy ứng dụng bị bind cứng vào `127.0.0.1` hoặc cố định cổng `8000`, trong khi nền tảng cloud cấp một cổng động qua biến môi trường `$PORT` và yêu cầu lắng nghe trên tất cả các network interface (`0.0.0.0`).
-- Cách sửa: Cập nhật lệnh chạy server thành `uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}` và cấu hình Dockerfile `HEALTHCHECK` đọc biến môi trường `$PORT`.
+Lỗi gặp khi chạy container ở máy (trước khi đẩy lên cloud — cùng image sẽ
+được Railway build và chạy):
+
+- **Triệu chứng:** `docker compose stop agent` xong, container thoát với mã
+  **137** (`docker inspect --format '{{.State.ExitCode}}'`), và trong
+  `docker compose logs agent` không có dòng `service_stopped` hay
+  `Shutting down` — tức là app bị SIGKILL, graceful shutdown ở CP4 không hề chạy.
+- **Tìm nguyên nhân:** mã 137 = 128 + 9 (SIGKILL). Xem lại Dockerfile:
+  `CMD ["sh", "-c", "uvicorn ..."]` → tiến trình PID 1 trong container là `sh`,
+  uvicorn chỉ là tiến trình con. Docker gửi SIGTERM cho PID 1, nhưng `sh` không
+  chuyển tiếp tín hiệu cho con, nên uvicorn không biết phải tắt; hết thời gian
+  chờ Docker SIGKILL cả container. Test pytest không bắt được lỗi này vì test
+  gọi thẳng `request_shutdown()` chứ không đi qua Docker.
+- **Cách sửa:** đổi thành `CMD ["sh", "-c", "exec uvicorn ... --port ${PORT:-8000}"]`.
+  `exec` làm uvicorn thay thế `sh` và trở thành PID 1 (vẫn giữ được việc đọc
+  `$PORT`). Build lại và thử: container thoát mã **0**, log có
+  `INFO: Shutting down` → `{"event": "service_stopped", ...}` →
+  `Finished server process [1]`.
+
+> TODO(học viên): nếu khi deploy lên Railway gặp thêm lỗi khác, có thể ghi lỗi đó ở đây.
