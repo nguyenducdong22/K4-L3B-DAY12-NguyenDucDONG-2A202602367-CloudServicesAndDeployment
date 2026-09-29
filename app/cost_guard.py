@@ -30,7 +30,11 @@ class CostGuard:
         return f"cost:{user_id}:{month or cls.current_month()}"
 
     def spent(self, user_id: str, month: str | None = None) -> float:
-        """Số tiền user đã tiêu trong tháng."""
+        """Số tiền user đã tiêu trong tháng.
+
+        Key chưa tồn tại thì Redis trả ``None`` → coi như ``0.0``. Redis trả
+        về chuỗi nên phải ép ``float``.
+        """
         value = self.client.get(self._key(user_id, month))
         return float(value) if value is not None else 0.0
 
@@ -40,7 +44,11 @@ class CostGuard:
         estimated_cost: float = 0.0,
         month: str | None = None,
     ) -> None:
-        """Cho qua nếu còn ngân sách, ngược lại raise 402."""
+        """Cho qua nếu còn ngân sách, ngược lại raise 402.
+
+        402 Payment Required đúng ngữ nghĩa "hết ngân sách", tách biệt với
+        429 (gọi quá nhanh) để client biết nên đợi hay nên dừng hẳn.
+        """
         if self.spent(user_id, month) + estimated_cost > self.budget:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
@@ -48,7 +56,12 @@ class CostGuard:
             )
 
     def record(self, user_id: str, cost: float, month: str | None = None) -> float:
-        """Cộng dồn chi phí vừa phát sinh, trả về tổng mới."""
+        """Cộng dồn chi phí vừa phát sinh, trả về tổng mới.
+
+        ``incrbyfloat`` là thao tác nguyên tử trên Redis: nhiều instance cùng
+        cộng một lúc cũng không bị mất số như kiểu đọc → cộng → ghi.
+        Key có tháng trong tên nên sang tháng mới tự bắt đầu lại từ 0.
+        """
         key = self._key(user_id, month)
         total = self.client.incrbyfloat(key, cost)
         self.client.expire(key, KEY_TTL_SECONDS)

@@ -28,14 +28,27 @@ class RateLimiter:
         return f"ratelimit:{user_id}"
 
     def hit_count(self, user_id: str, now: float | None = None) -> int:
-        """Số request của user trong ``WINDOW_SECONDS`` giây gần nhất."""
+        """Số request của user trong ``WINDOW_SECONDS`` giây gần nhất.
+
+        Xóa các entry có score (timestamp) cũ hơn ``now - WINDOW_SECONDS`` rồi
+        mới đếm, nên cửa sổ luôn "trượt" theo thời điểm hiện tại. Nhận ``now``
+        làm tham số để test truyền được thời gian giả.
+        """
         now = now if now is not None else time.time()
         key = self._key(user_id)
         self.client.zremrangebyscore(key, 0, now - WINDOW_SECONDS)
         return int(self.client.zcard(key))
 
     def check(self, user_id: str, now: float | None = None) -> None:
-        """Cho qua nếu còn quota, ngược lại raise 429."""
+        """Cho qua nếu còn quota, ngược lại raise 429.
+
+        Thứ tự: **kiểm tra trước, ghi nhận sau**. Ghi trước rồi mới đếm sẽ
+        chặn nhầm ngay ở request thứ ``limit``.
+
+        Member của ZSET phải DUY NHẤT (timestamp + uuid): hai request cùng
+        timestamp mà trùng member thì ZSET chỉ giữ một, và ta đếm thiếu.
+        ``expire`` để key của user không còn gọi nữa tự biến mất khỏi Redis.
+        """
         now = now if now is not None else time.time()
         key = self._key(user_id)
         if self.hit_count(user_id, now) >= self.limit:

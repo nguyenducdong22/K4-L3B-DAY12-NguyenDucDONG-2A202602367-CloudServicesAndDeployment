@@ -18,9 +18,18 @@ def utc_now_iso() -> str:
 
 
 def log_event(event: str, level: str = "info", **fields) -> str:
-    """Ghi một dòng log JSON ra stdout.
+    """Ghi một dòng log JSON ra stdout và trả về chính dòng đó.
 
-    In chuỗi JSON đó ra stdout trên một dòng duy nhất và trả về chính chuỗi đó.
+    Mỗi bản ghi luôn có ``event``, ``level`` (viết thường) và ``timestamp``
+    (ISO-8601, UTC), cộng thêm mọi cặp key/value trong ``**fields``.
+
+    Không dùng ``indent``: cloud gom log theo dòng, JSON xuống dòng sẽ bị cắt
+    thành nhiều log vô nghĩa. ``ensure_ascii=False`` để tiếng Việt không bị
+    biến thành ``\\uXXXX``.
+
+    Ví dụ:
+        >>> log_event("ask_completed", user_id="sv01", cost_usd=0.0001)
+        '{"event": "ask_completed", "level": "info", "timestamp": "...", ...}'
     """
     record = {
         "event": event,
